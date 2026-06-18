@@ -14,12 +14,12 @@ st.set_page_config(
 # ----------------------------------
 # LOAD DATA
 # ----------------------------------
+DATA_URL = "https://drive.google.com/uc?export=download&id=1oywQz37FV_eBAEUWxOydAhZdER2oRcxM"
+
 @st.cache_data
 def load_data():
-    df = pd.read_csv("athlete_events.csv")
-
+    df = pd.read_csv(DATA_URL)
     df["WonMedal"] = df["Medal"].notna().astype(int)
-
     return df
 
 df = load_data()
