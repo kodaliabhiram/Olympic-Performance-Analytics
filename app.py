@@ -1,139 +1,242 @@
 import streamlit as st
-from helper import preprocess
+import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Olympic Analytics")
-
-st.title("🏅 Olympic Performance Analytics")
-
-df = preprocess()
-st.sidebar.title("Filters")
-
-selected_year = st.sidebar.selectbox(
-    "Select Olympic Year",
-    sorted(df['Year'].unique())
+# ----------------------------------
+# PAGE CONFIG
+# ----------------------------------
+st.set_page_config(
+    page_title="Olympic Performance Trends",
+    page_icon="🏅",
+    layout="wide"
 )
 
-df = df[df['Year'] == selected_year]
+# ----------------------------------
+# LOAD DATA
+# ----------------------------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("athlete_events.csv")
 
-# KPI Cards
+    df["WonMedal"] = df["Medal"].notna().astype(int)
 
+    return df
+
+df = load_data()
+
+# ----------------------------------
+# SIDEBAR
+# ----------------------------------
+st.sidebar.title("Filters")
+
+season_filter = st.sidebar.multiselect(
+    "Season",
+    options=df["Season"].unique(),
+    default=df["Season"].unique()
+)
+
+year_range = st.sidebar.slider(
+    "Year Range",
+    int(df["Year"].min()),
+    int(df["Year"].max()),
+    (int(df["Year"].min()), int(df["Year"].max()))
+)
+
+filtered_df = df[
+    (df["Season"].isin(season_filter))
+    & (df["Year"] >= year_range[0])
+    & (df["Year"] <= year_range[1])
+]
+
+# ----------------------------------
+# TITLE
+# ----------------------------------
+st.title("🏅 Olympic Performance Trends Dashboard")
+
+st.markdown(
+    """
+    Analyze Olympic athlete participation,
+    medal trends, country performance,
+    sports dominance, and demographics.
+    """
+)
+
+# ----------------------------------
+# KPI SECTION
+# ----------------------------------
 col1, col2, col3, col4 = st.columns(4)
 
-with col1:
-    st.metric("Athletes", df['Name'].nunique())
+col1.metric("Athletes", f"{filtered_df['Name'].nunique():,}")
+col2.metric("Countries", f"{filtered_df['NOC'].nunique():,}")
+col3.metric("Sports", f"{filtered_df['Sport'].nunique():,}")
+col4.metric("Medals", f"{filtered_df['WonMedal'].sum():,}")
 
-with col2:
-    st.metric("Countries", df['region'].nunique())
+# ----------------------------------
+# TABS
+# ----------------------------------
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "Overview",
+        "Countries",
+        "Sports",
+        "Demographics"
+    ]
+)
 
-with col3:
-    st.metric("Sports", df['Sport'].nunique())
+# ==================================
+# OVERVIEW
+# ==================================
+with tab1:
 
-with col4:
-    st.metric("Olympic Years", df['Year'].nunique())
-    st.header("Top 10 Countries by Medal Count")
+    st.subheader("Olympic Medal Trends")
 
-medals = df.dropna(subset=['Medal'])
+    medals_by_year = (
+        filtered_df[filtered_df["WonMedal"] == 1]
+        .groupby("Year")
+        .size()
+        .reset_index(name="Medals")
+    )
 
-country_medals = medals.groupby('region').size().reset_index(name='Medals')
+    fig = px.line(
+        medals_by_year,
+        x="Year",
+        y="Medals",
+        markers=True,
+        title="Total Medals by Year"
+    )
 
-country_medals = country_medals.sort_values(
-    'Medals',
-    ascending=False
-).head(10)
+    st.plotly_chart(fig, use_container_width=True)
 
-fig = px.bar(
-    country_medals,
-    x='region',
-    y='Medals',
-    title='Top 10 Countries'
+# ==================================
+# COUNTRIES
+# ==================================
+with tab2:
+
+    st.subheader("Country Performance")
+
+    top_n = st.slider(
+        "Select Top Countries",
+        5,
+        30,
+        10
+    )
+
+    country_medals = (
+        filtered_df[filtered_df["WonMedal"] == 1]
+        .groupby("NOC")
+        .size()
+        .reset_index(name="Medals")
+        .sort_values("Medals", ascending=False)
+        .head(top_n)
+    )
+
+    fig = px.bar(
+        country_medals,
+        x="NOC",
+        y="Medals",
+        text="Medals",
+        title="Top Countries by Medals"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(country_medals)
+
+# ==================================
+# SPORTS
+# ==================================
+with tab3:
+
+    st.subheader("Top Sports")
+
+    sport_medals = (
+        filtered_df[filtered_df["WonMedal"] == 1]
+        .groupby("Sport")
+        .size()
+        .reset_index(name="Medals")
+        .sort_values("Medals", ascending=False)
+        .head(20)
+    )
+
+    fig = px.bar(
+        sport_medals,
+        x="Medals",
+        y="Sport",
+        orientation="h",
+        title="Top 20 Sports by Medal Count"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# ==================================
+# DEMOGRAPHICS
+# ==================================
+with tab4:
+
+    st.subheader("Gender Distribution")
+
+    gender = (
+        filtered_df.groupby("Sex")
+        .size()
+        .reset_index(name="Count")
+    )
+
+    fig = px.pie(
+        gender,
+        names="Sex",
+        values="Count",
+        title="Male vs Female Athletes"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Age Distribution of Medal Winners")
+
+    medalists = filtered_df[
+        filtered_df["WonMedal"] == 1
+    ]
+
+    fig = px.histogram(
+        medalists,
+        x="Age",
+        nbins=30,
+        title="Age Distribution"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# ----------------------------------
+# COUNTRY TREND SECTION
+# ----------------------------------
+st.header("Country Medal Trend")
+
+country = st.selectbox(
+    "Choose Country",
+    sorted(filtered_df["NOC"].unique())
+)
+
+country_trend = (
+    filtered_df[
+        (filtered_df["NOC"] == country)
+        & (filtered_df["WonMedal"] == 1)
+    ]
+    .groupby("Year")
+    .size()
+    .reset_index(name="Medals")
+)
+
+fig = px.line(
+    country_trend,
+    x="Year",
+    y="Medals",
+    markers=True,
+    title=f"{country} Medal Trend"
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-st.write(df.head())
-
-st.header("Medal Trend Over Years")
-
-trend = preprocess()
-
-trend = trend.dropna(subset=['Medal'])
-
-trend = trend.groupby('Year').size().reset_index(name='Medals')
-
-fig2 = px.line(
-    trend,
-    x='Year',
-    y='Medals',
-    markers=True,
-    title='Olympic Medal Trend'
-)
-
-st.plotly_chart(fig2, use_container_width=True)
-
-
-st.header("Top Athletes")
-
-athletes = preprocess()
-
-athletes = athletes.dropna(subset=['Medal'])
-
-top_athletes = athletes.groupby(
-    'Name'
-).size().reset_index(name='Medals')
-
-top_athletes = top_athletes.sort_values(
-    'Medals',
-    ascending=False
-).head(10)
-
-fig3 = px.bar(
-    top_athletes,
-    x='Name',
-    y='Medals',
-    title='Top 10 Athletes'
-)
-
-st.plotly_chart(fig3, use_container_width=True)
-
-st.header("Top Sports")
-
-sports = preprocess()
-
-sports = sports.dropna(subset=['Medal'])
-
-sports = sports.groupby(
-    'Sport'
-).size().reset_index(name='Medals')
-
-sports = sports.sort_values(
-    'Medals',
-    ascending=False
-).head(10)
-
-fig4 = px.bar(
-    sports,
-    x='Sport',
-    y='Medals',
-    title='Top Sports by Medal Count'
-)
-
-st.plotly_chart(fig4, use_container_width=True)
-
-
-st.header("Gender Participation")
-
-gender = preprocess()
-
-gender = gender.groupby(
-    'Sex'
-).size().reset_index(name='Count')
-
-fig5 = px.pie(
-    gender,
-    names='Sex',
-    values='Count',
-    title='Male vs Female Participation'
-)
-
-st.plotly_chart(fig5, use_container_width=True)
+# ----------------------------------
+# RAW DATA
+# ----------------------------------
+with st.expander("View Dataset"):
+    st.dataframe(filtered_df)
